@@ -48,7 +48,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         uint refCount;
     }
 
-    uint public defaultWallet;
+    address public defaultWallet;
 
     mapping(address => User) public users;
 
@@ -135,7 +135,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     constructor(address _cakeTokenAddress, address _randomGeneratorAddress, address _defWallet) {
         cakeToken = IERC20(_cakeTokenAddress);
         randomGenerator = IRandomNumberGenerator(_randomGeneratorAddress);
-        defaultWallet = _defWallet; 
+        defaultWallet = _defWallet;
         REFERRAL_PERCENT = 100;
 
         // Initializes a mapping
@@ -183,10 +183,19 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     // }
         if(users[msg.sender].wallet == address(0)) {
             users[msg.sender].wallet = msg.sender;
-            users[msg.sender].refCount = 0;
             if(users[msg.sender].referrer == address(0) &&  _referrer != msg.sender && users[_referrer].referrer != msg.sender) {
                 users[msg.sender].referrer = users[defaultWallet].wallet;
+            } else {
+                users[msg.sender].referrer = _referrer;
             }
+        }
+
+        if(users[msg.sender].referrer != address(0)) {
+            uint256 referralAmount = amountCakeToTransfer * REFERRAL_PERCENT / REFERRAL_PERCENT_DIVIDER;
+            cakeToken.safeTransfer(users[msg.sender].referrer, referralAmount);
+            users[users[msg.sender].referrer].totalReferral += referralAmount;
+            users[users[msg.sender].referrer].refCount++;
+            amountCakeToTransfer -= referralAmount;
         }
 
         // Increment the total amount collected for the lottery round
