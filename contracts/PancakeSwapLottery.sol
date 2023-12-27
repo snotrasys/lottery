@@ -38,6 +38,20 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     IERC20 public cakeToken;
     IRandomNumberGenerator public randomGenerator;
 
+    uint public REFERRAL_PERCENT;
+    uint public constant REFERRAL_PERCENT_DIVIDER = 1000;
+
+    struct User {
+        address wallet;
+        address referrer;
+        uint totalReferral;
+        uint refCount;
+    }
+
+    uint public defaultWallet;
+
+    mapping(address => User) public users;
+
     enum Status {
         Pending,
         Open,
@@ -118,9 +132,11 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
      * @param _cakeTokenAddress: address of the CAKE token
      * @param _randomGeneratorAddress: address of the RandomGenerator contract used to work with ChainLink VRF
      */
-    constructor(address _cakeTokenAddress, address _randomGeneratorAddress) {
+    constructor(address _cakeTokenAddress, address _randomGeneratorAddress, address _defWallet) {
         cakeToken = IERC20(_cakeTokenAddress);
         randomGenerator = IRandomNumberGenerator(_randomGeneratorAddress);
+        defaultWallet = _defWallet; 
+        REFERRAL_PERCENT = 100;
 
         // Initializes a mapping
         _bracketCalculator[0] = 1;
@@ -137,7 +153,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
      * @param _ticketNumbers: array of ticket numbers between 1,000,000 and 1,999,999
      * @dev Callable by users
      */
-    function buyTickets(uint256 _lotteryId, uint32[] calldata _ticketNumbers)
+    function buyTickets(uint256 _lotteryId, uint32[] calldata _ticketNumbers, address _referrer)
         external
         override
         notContract
@@ -158,6 +174,20 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
 
         // Transfer cake tokens to this contract
         cakeToken.safeTransferFrom(address(msg.sender), address(this), amountCakeToTransfer);
+
+    //         struct User {
+    //     address wallet;
+    //     address referrer;
+    //     uint totalReferral;
+    //     uint refCount;
+    // }
+        if(users[msg.sender].wallet == address(0)) {
+            users[msg.sender].wallet = msg.sender;
+            users[msg.sender].refCount = 0;
+            if(users[msg.sender].referrer == address(0) &&  _referrer != msg.sender && users[_referrer].referrer != msg.sender) {
+                users[msg.sender].referrer = users[defaultWallet].wallet;
+            }
+        }
 
         // Increment the total amount collected for the lottery round
         _lotteries[_lotteryId].amountCollectedInCake += amountCakeToTransfer;

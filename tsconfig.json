@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+      "target": "es2018",
+      "module": "CommonJS",
+      "moduleResolution": "node",
+      "strict": true,
+      // ...otras opciones
+    },
+    // ...otros campos de tsconfig.json
+  }
+  
