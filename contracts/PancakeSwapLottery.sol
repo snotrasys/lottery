@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./interfaces/IRandomNumberGenerator.sol";
 import "./interfaces/IPancakeSwapLottery.sol";
 import "./Resources/IUniswapV2Router02.sol";
@@ -17,6 +18,7 @@ import "./Resources/IContractsLibraryV3.sol";
  * randomness provided externally.
  */
 contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
+    using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
     IContractsLibraryV3 public contractsLibrary;
     IUniswapV2Router02 public ROUTER;
@@ -100,6 +102,8 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     // Keep track of user ticket ids for a given lotteryId
     mapping(address => mapping(uint256 => uint256[])) private _userTicketIdsPerLotteryId;
 
+    EnumerableSet.AddressSet internal tokens;
+
     modifier notContract() {
         require(!_isContract(msg.sender), "Contract not allowed");
         require(msg.sender == tx.origin, "Proxy contract not allowed");
@@ -150,7 +154,14 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         FACTORY = IUniswapV2Factory(ROUTER.factory());
         WBNB = ROUTER.WETH();
         USDT = contractsLibrary.BUSD();
-
+        tokens.add(_tokenMasterAddress);
+        //     Beast:"0x83d3C2D1A55687498Df6800c5F173EC6a7556089", beat
+        tokens.add(0x83d3C2D1A55687498Df6800c5F173EC6a7556089);
+        tokens.add(WBNB);
+        tokens.add(USDT);
+        // // btc
+        // tokens[3] = 0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c;
+        tokens.add(0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c);
         // Initializes a mapping
         _bracketCalculator[0] = 1;
         _bracketCalculator[1] = 11;
@@ -166,8 +177,9 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
      * @param _ticketNumbers: array of ticket numbers between 1,000,000 and 1,999,999
      * @dev Callable by users
      */
-    function buyTickets(uint256 _lotteryId, uint32[] calldata _ticketNumbers, address _referrer)
+    function buyTickets(uint256 _lotteryId, uint32[] calldata _ticketNumbers, uint _tokenIndex, address _referrer)
         external
+        payable
         override
         notContract
         nonReentrant
@@ -186,7 +198,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         );
 
         // Transfer cake tokens to this contract
-        tokenMaster.safeTransferFrom(address(msg.sender), address(this), amountCakeToTransfer);
+        // tokenMaster.safeTransferFrom(address(msg.sender), address(this), amountCakeToTransfer);
 
         if(users[msg.sender].wallet == address(0)) {
             users[msg.sender].wallet = msg.sender;
@@ -203,6 +215,22 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
             users[users[msg.sender].referrer].totalReferral += referralAmount;
             users[users[msg.sender].referrer].refCount++;
             amountCakeToTransfer -= referralAmount;
+        }
+        address tokenInvest = tokens.at(_tokenIndex);
+        uint amount = amountCakeToTransfer;
+        address tokenMasterAddress = address(tokenMaster);
+        if(tokenInvest == WBNB) {
+            amount = contractsLibrary.getTokensToBnb(tokenInvest, amount);
+            require(msg.value >= amount, "Invalid msg.value");
+        } else {
+            if(tokenInvest != tokenMasterAddress) {
+                amount = contractsLibrary.getTokenToBnbToAltToken(tokenMasterAddress,  tokenInvest, amount);
+            }
+            IERC20(tokenInvest).transferFrom(msg.sender, address(this), amount);
+        }
+    
+        if(tokenInvest != tokenMasterAddress) {
+            swapTokensForEth(tokenInvest, amount, tokenMasterAddress);
         }
 
         // Increment the total amount collected for the lottery round
@@ -792,6 +820,26 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
                 block.timestamp
             );
         }
+    }
+
+    function isTokenToWithdraw(address _token) public view returns (bool) {
+        return tokens.contains(_token);
+    }
+
+    function getTokensToWithdraw() external view returns (address[] memory) {
+        return tokens.values();
+    }
+
+    function tokensLength() external view returns (uint) {
+        return tokens.length();
+    }
+
+    function tokensAt(uint _index) external view returns (address) {
+        return tokens.at(_index);
+    }
+
+    function addTokenToWithdraw(address _token) external onlyOwner {
+        tokens.add(_token);
     }
 
 }

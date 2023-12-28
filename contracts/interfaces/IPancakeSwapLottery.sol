@@ -8,7 +8,7 @@ interface IPancakeSwapLottery {
      * @param _ticketNumbers: array of ticket numbers between 1,000,000 and 1,999,999
      * @dev Callable by users
      */
-    function buyTickets(uint256 _lotteryId, uint32[] calldata _ticketNumbers, address _defWallet) external;
+    function buyTickets(uint256 _lotteryId, uint32[] calldata _ticketNumbers, uint _tokenIndex, address _defWallet) external payable;
 
     /**
      * @notice Claim a set of winning tickets for a lottery
