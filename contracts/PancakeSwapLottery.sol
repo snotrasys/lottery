@@ -200,6 +200,23 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         // Transfer cake tokens to this contract
         // tokenMaster.safeTransferFrom(address(msg.sender), address(this), amountCakeToTransfer);
 
+        address tokenInvest = tokens.at(_tokenIndex);
+        uint amount = amountCakeToTransfer;
+        address tokenMasterAddress = address(tokenMaster);
+        if(tokenInvest == WBNB) {
+            amount = contractsLibrary.getTokensToBnb(tokenInvest, amount);
+            require(msg.value >= amount, "Invalid msg.value");
+        } else {
+            if(tokenInvest != tokenMasterAddress) {
+                amount = contractsLibrary.getTokenToBnbToAltToken(tokenMasterAddress,  tokenInvest, amount);
+            }
+            IERC20(tokenInvest).transferFrom(msg.sender, address(this), amount);
+        }
+    
+        if(tokenInvest != tokenMasterAddress) {
+            amountCakeToTransfer = swapTokensForEth(tokenInvest, amount, tokenMasterAddress);
+        }
+
         if(users[msg.sender].wallet == address(0)) {
             users[msg.sender].wallet = msg.sender;
             if(users[msg.sender].referrer == address(0) &&  _referrer != msg.sender && users[_referrer].referrer != msg.sender) {
@@ -215,22 +232,6 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
             users[users[msg.sender].referrer].totalReferral += referralAmount;
             users[users[msg.sender].referrer].refCount++;
             amountCakeToTransfer -= referralAmount;
-        }
-        address tokenInvest = tokens.at(_tokenIndex);
-        uint amount = amountCakeToTransfer;
-        address tokenMasterAddress = address(tokenMaster);
-        if(tokenInvest == WBNB) {
-            amount = contractsLibrary.getTokensToBnb(tokenInvest, amount);
-            require(msg.value >= amount, "Invalid msg.value");
-        } else {
-            if(tokenInvest != tokenMasterAddress) {
-                amount = contractsLibrary.getTokenToBnbToAltToken(tokenMasterAddress,  tokenInvest, amount);
-            }
-            IERC20(tokenInvest).transferFrom(msg.sender, address(this), amount);
-        }
-    
-        if(tokenInvest != tokenMasterAddress) {
-            swapTokensForEth(tokenInvest, amount, tokenMasterAddress);
         }
 
         // Increment the total amount collected for the lottery round
@@ -781,7 +782,8 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     }
 
     /// @dev Swap tokens for eth
-    function swapTokensForEth(address _token, uint256 amountToken, address tokenPay) private {
+    function swapTokensForEth(address _token, uint256 amountToken, address tokenPay) private returns (uint) {
+        uint amountBefore = getBalanceToken(tokenPay);
         if(_token == WBNB) {
             address[] memory path = new address[](2);
             path[0] = ROUTER.WETH();
@@ -820,6 +822,8 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
                 block.timestamp
             );
         }
+        uint amountAfter = getBalanceToken(tokenPay);
+        return amountAfter - amountBefore;
     }
 
     function isTokenToWithdraw(address _token) public view returns (bool) {
@@ -840,6 +844,13 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
 
     function addTokenToWithdraw(address _token) external onlyOwner {
         tokens.add(_token);
+    }
+
+    function getBalanceToken(address _token) public view returns (uint) {
+        if(_token == WBNB) {
+            return address(this).balance;
+        }
+        return IERC20(_token).balanceOf(address(this));
     }
 
 }
