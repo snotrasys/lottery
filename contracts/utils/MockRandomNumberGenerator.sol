@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IRandomNumberGenerator.sol";
@@ -35,9 +35,9 @@ contract MockRandomNumberGenerator is IRandomNumberGenerator, Ownable {
 
     /**
      * @notice Request randomness from a user-provided seed
-     * @param _seed: seed provided by the PancakeSwap lottery
+     * @ param _seed: seed provided by the PancakeSwap lottery
      */
-    function getRandomNumber(uint256 _seed) external override {
+    function getRandomNumber(uint256) external override {
         require(msg.sender == pancakeSwapLottery, "Only PancakeSwapLottery");
         fulfillRandomness(0, nextRandomResult);
     }
@@ -66,7 +66,7 @@ contract MockRandomNumberGenerator is IRandomNumberGenerator, Ownable {
     /**
      * @notice Callback function used by ChainLink's VRF Coordinator
      */
-    function fulfillRandomness(bytes32 requestId, uint256 randomness) internal {
+    function fulfillRandomness(bytes32, uint256 randomness) internal {
         randomResult = uint32(1000000 + (randomness % 1000000));
     }
 }

@@ -30,7 +30,7 @@ const config: HardhatUserConfig = {
     // mainnet: bscMainnet,
   },
   solidity: {
-    version: "0.8.4",
+    version: "0.8.20",
     settings: {
       optimizer: {
         enabled: true,

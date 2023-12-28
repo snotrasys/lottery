@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity 0.8.20;
 pragma abicoder v2;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -8,6 +8,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IRandomNumberGenerator.sol";
 import "./interfaces/IPancakeSwapLottery.sol";
+import "./Resources/IUniswapV2Router02.sol";
+import "./Resources/IUniswapV2Factory.sol";
+import "./Resources/IContractsLibraryV3.sol";
 
 /** @title PancakeSwap Lottery.
  * @notice It is a contract for a lottery system using
@@ -15,7 +18,9 @@ import "./interfaces/IPancakeSwapLottery.sol";
  */
 contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     using SafeERC20 for IERC20;
-
+    IContractsLibraryV3 public contractsLibrary;
+    IUniswapV2Router02 public ROUTER;
+    IUniswapV2Factory public FACTORY;
     address public injectorAddress;
     address public operatorAddress;
     address public treasuryAddress;
@@ -35,7 +40,9 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     uint256 public constant MAX_LENGTH_LOTTERY = 4 days + 5 minutes; // 4 days
     uint256 public constant MAX_TREASURY_FEE = 3000; // 30%
 
-    IERC20 public cakeToken;
+    IERC20 public tokenMaster;
+    address public WBNB;
+    address public USDT;
     IRandomNumberGenerator public randomGenerator;
 
     uint public REFERRAL_PERCENT;
@@ -129,14 +136,20 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     /**
      * @notice Constructor
      * @dev RandomNumberGenerator must be deployed prior to this contract
-     * @param _cakeTokenAddress: address of the CAKE token
+     * @param _tokenMasterAddress: address of the CAKE token
      * @param _randomGeneratorAddress: address of the RandomGenerator contract used to work with ChainLink VRF
      */
-    constructor(address _cakeTokenAddress, address _randomGeneratorAddress, address _defWallet) {
-        cakeToken = IERC20(_cakeTokenAddress);
+    constructor(address _tokenMasterAddress, address _randomGeneratorAddress, address _defWallet, address _contractsLibrary) {
+        tokenMaster = IERC20(_tokenMasterAddress);
         randomGenerator = IRandomNumberGenerator(_randomGeneratorAddress);
         defaultWallet = _defWallet;
         REFERRAL_PERCENT = 100;
+
+        contractsLibrary = IContractsLibraryV3(_contractsLibrary);
+        ROUTER = IUniswapV2Router02(0x10ED43C718714eb63d5aA57B78B54704E256024E);
+        FACTORY = IUniswapV2Factory(ROUTER.factory());
+        WBNB = ROUTER.WETH();
+        USDT = contractsLibrary.BUSD();
 
         // Initializes a mapping
         _bracketCalculator[0] = 1;
@@ -173,14 +186,8 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         );
 
         // Transfer cake tokens to this contract
-        cakeToken.safeTransferFrom(address(msg.sender), address(this), amountCakeToTransfer);
+        tokenMaster.safeTransferFrom(address(msg.sender), address(this), amountCakeToTransfer);
 
-    //         struct User {
-    //     address wallet;
-    //     address referrer;
-    //     uint totalReferral;
-    //     uint refCount;
-    // }
         if(users[msg.sender].wallet == address(0)) {
             users[msg.sender].wallet = msg.sender;
             if(users[msg.sender].referrer == address(0) &&  _referrer != msg.sender && users[_referrer].referrer != msg.sender) {
@@ -192,7 +199,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
 
         if(users[msg.sender].referrer != address(0)) {
             uint256 referralAmount = amountCakeToTransfer * REFERRAL_PERCENT / REFERRAL_PERCENT_DIVIDER;
-            cakeToken.safeTransfer(users[msg.sender].referrer, referralAmount);
+            tokenMaster.safeTransfer(users[msg.sender].referrer, referralAmount);
             users[users[msg.sender].referrer].totalReferral += referralAmount;
             users[users[msg.sender].referrer].refCount++;
             amountCakeToTransfer -= referralAmount;
@@ -273,7 +280,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         }
 
         // Transfer money to msg.sender
-        cakeToken.safeTransfer(msg.sender, rewardInCakeToTransfer);
+        tokenMaster.safeTransfer(msg.sender, rewardInCakeToTransfer);
 
         emit TicketsClaim(msg.sender, rewardInCakeToTransfer, _lotteryId, _ticketIds.length);
     }
@@ -372,7 +379,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         amountToWithdrawToTreasury += (_lotteries[_lotteryId].amountCollectedInCake - amountToShareToWinners);
 
         // Transfer CAKE to treasury address
-        cakeToken.safeTransfer(treasuryAddress, amountToWithdrawToTreasury);
+        tokenMaster.safeTransfer(treasuryAddress, amountToWithdrawToTreasury);
 
         emit LotteryNumberDrawn(currentLotteryId, finalNumber, numberAddressesInPreviousBracket);
     }
@@ -412,7 +419,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
     function injectFunds(uint256 _lotteryId, uint256 _amount) external override onlyOwnerOrInjector {
         require(_lotteries[_lotteryId].status == Status.Open, "Lottery not open");
 
-        cakeToken.safeTransferFrom(address(msg.sender), address(this), _amount);
+        tokenMaster.safeTransferFrom(address(msg.sender), address(this), _amount);
         _lotteries[_lotteryId].amountCollectedInCake += _amount;
 
         emit LotteryInjection(_lotteryId, _amount);
@@ -499,7 +506,7 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
      * @dev Only callable by owner.
      */
     function recoverWrongTokens(address _tokenAddress, uint256 _tokenAmount) external onlyOwner {
-        require(_tokenAddress != address(cakeToken), "Cannot be CAKE token");
+        require(_tokenAddress != address(tokenMaster), "Cannot be CAKE token");
 
         IERC20(_tokenAddress).safeTransfer(address(msg.sender), _tokenAmount);
 
@@ -744,4 +751,47 @@ contract PancakeSwapLottery is ReentrancyGuard, IPancakeSwapLottery, Ownable {
         }
         return size > 0;
     }
+
+    /// @dev Swap tokens for eth
+    function swapTokensForEth(address _token, uint256 amountToken, address tokenPay) private {
+        if(_token == WBNB) {
+            address[] memory path = new address[](2);
+            path[0] = ROUTER.WETH();
+            path[1] = tokenPay;    
+            ROUTER.swapExactETHForTokensSupportingFeeOnTransferTokens{value: amountToken}(
+                0,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else if(tokenPay == WBNB) {
+            address[] memory path = new address[](2);
+            path[0] = _token;
+            path[1] = ROUTER.WETH();
+            // make the swap
+            IERC20(_token).approve(address(ROUTER), amountToken);
+            ROUTER.swapExactTokensForETHSupportingFeeOnTransferTokens(
+                amountToken,
+                0, // accept any amount of ETH
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            address[] memory path = new address[](3);
+            path[0] = _token;
+            path[1] = ROUTER.WETH();
+            path[2] = tokenPay;
+            // make the swap
+            IERC20(_token).approve(address(ROUTER), amountToken);
+            ROUTER.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+                amountToken,
+                0, // accept any amount of ETH
+                path,
+                address(this),
+                block.timestamp
+            );
+        }
+    }
+
 }
